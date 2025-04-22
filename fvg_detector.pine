@@ -1,0 +1,95 @@
+// @version=5
+indicator("Fair Value Gap (FVG) Indykator", shorttitle="FVG", overlay=true)
+
+// parametes
+lookback = input.int(30, "Ilość FVG wstecz", minval=1, maxval=100)
+bullColor = input.color(color.green, "Kolor byczych FVG", group="Kolory")
+bearColor = input.color(color.red, "Kolor niedźwiedzich FVG", group="Kolory")
+transparencyFVG = input.int(70, "Przezroczystość FVG", minval=0, maxval=100, group="Wygląd")
+lineWidth = input.int(1, "Szerokość linii", minval=1, maxval=4, group="Wygląd")
+
+// Store fvg type
+type FVG
+    int candle_idx
+    float top
+    float bottom
+    bool isBull
+
+// Global vars
+var bullFVGs = array.new<FVG>()
+var bearFVGs = array.new<FVG>()
+var lastBullCandle = 0
+var lastBearCandle = 0
+
+// check duplicates
+isDuplicate(newCandle, isBull) =>
+    if isBull
+        math.abs(newCandle - lastBullCandle) <= 0.9
+    else
+        math.abs(newCandle - lastBearCandle) <= 0.9
+
+// detecting FVG
+detectFVG() =>
+    bullDetected = false
+    bearDetected = false
+    bullCandle = 0
+    bearCandle = 0
+    bullTop = 0.0
+    bullBottom = 0.0
+    bearTop = 0.0
+    bearBottom = 0.0
+    
+    // bull FVG
+    if high[2] < low[0]
+        bullDetected := true
+        bullCandle := bar_index - 1
+        bullTop := low[0]
+        bullBottom := high[2]
+    
+    // bear FVG
+    if low[2] > high[0]
+        bearDetected := true
+        bearCandle := bar_index - 1
+        bearTop := low[2]
+        bearBottom := high[0]
+    
+    [bullDetected, bearDetected, bullCandle, bearCandle, bullTop, bullBottom, bearTop, bearBottom]
+
+// clean old fvg
+cleanupFVGs() =>
+    while array.size(bullFVGs) > lookback
+        array.shift(bullFVGs)
+    
+    while array.size(bearFVGs) > lookback
+        array.shift(bearFVGs)
+
+// run fvg detect
+[bullDetected, bearDetected, bullCandle, bearCandle, bullTop, bullBottom, bearTop, bearBottom] = detectFVG()
+
+// add new fvg
+if bullDetected and not isDuplicate(bullCandle, true)
+    newBullFVG = FVG.new(bullCandle, bullTop, bullBottom, true)
+    array.push(bullFVGs, newBullFVG)
+    lastBullCandle := bullCandle
+
+if bearDetected and not isDuplicate(bearCandle, false)
+    newBearFVG = FVG.new(bearCandle, bearTop, bearBottom, false)
+    array.push(bearFVGs, newBearFVG)
+    lastBearCandle := bearCandle
+
+
+cleanupFVGs()
+
+// drawing
+if barstate.islast
+    // draw bullish
+    for i = 0 to array.size(bullFVGs) - 1
+        fvg = array.get(bullFVGs, i)
+        boxColor = color.new(bullColor, transparencyFVG)
+        box.new(fvg.candle_idx, fvg.top, fvg.candle_idx + 2, fvg.bottom, bgcolor=boxColor, border_color=bullColor, border_width=lineWidth)
+    
+    // draw bearish
+    for i = 0 to array.size(bearFVGs) - 1
+        fvg = array.get(bearFVGs, i)
+        boxColor = color.new(bearColor, transparencyFVG)
+        box.new(fvg.candle_idx, fvg.top, fvg.candle_idx + 2, fvg.bottom, bgcolor=boxColor, border_color=bearColor, border_width=lineWidth)
