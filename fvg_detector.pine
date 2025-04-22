@@ -1,95 +1,60 @@
 // @version=5
-indicator("Fair Value Gap (FVG) Indykator", shorttitle="FVG", overlay=true)
+indicator("Fair Value Gap Premium [Final]", shorttitle="FVG Premium [F]", overlay=true, max_labels_count=500)
 
-// parametes
-lookback = input.int(30, "Ilość FVG wstecz", minval=1, maxval=100)
-bullColor = input.color(color.green, "Kolor byczych FVG", group="Kolory")
-bearColor = input.color(color.red, "Kolor niedźwiedzich FVG", group="Kolory")
-transparencyFVG = input.int(70, "Przezroczystość FVG", minval=0, maxval=100, group="Wygląd")
-lineWidth = input.int(1, "Szerokość linii", minval=1, maxval=4, group="Wygląd")
+// Parameters
+lookback = input.int(30, "FVG Lookback Period", minval=1, maxval=100)
+min_gap_percent = input.float(0.1, "Minimum Gap Size (% of price)", minval=0.0, maxval=5.0, step=0.1)
+bullColor = input.color(color.new(color.green, 70), "Bullish FVG Color", group="Colors")
+bearColor = input.color(color.new(color.red, 70), "Bearish FVG Color", group="Colors")
+lineWidth = input.int(1, "Line Width", minval=1, maxval=4, group="Appearance")
+show_labels = input.bool(true, "Show Labels", group="Appearance")
 
-// Store fvg type
-type FVG
-    int candle_idx
-    float top
-    float bottom
-    bool isBull
+// Global variables
+var bullFVGs = array.new<box>()
+var bearFVGs = array.new<box>()
 
-// Global vars
-var bullFVGs = array.new<FVG>()
-var bearFVGs = array.new<FVG>()
-var lastBullCandle = 0
-var lastBearCandle = 0
-
-// check duplicates
-isDuplicate(newCandle, isBull) =>
-    if isBull
-        math.abs(newCandle - lastBullCandle) <= 0.9
-    else
-        math.abs(newCandle - lastBearCandle) <= 0.9
-
-// detecting FVG
-detectFVG() =>
-    bullDetected = false
-    bearDetected = false
-    bullCandle = 0
-    bearCandle = 0
-    bullTop = 0.0
-    bullBottom = 0.0
-    bearTop = 0.0
-    bearBottom = 0.0
-    
-    // bull FVG
-    if high[2] < low[0]
-        bullDetected := true
-        bullCandle := bar_index - 1
-        bullTop := low[0]
-        bullBottom := high[2]
-    
-    // bear FVG
-    if low[2] > high[0]
-        bearDetected := true
-        bearCandle := bar_index - 1
-        bearTop := low[2]
-        bearBottom := high[0]
-    
-    [bullDetected, bearDetected, bullCandle, bearCandle, bullTop, bullBottom, bearTop, bearBottom]
-
-// clean old fvg
-cleanupFVGs() =>
+// Cleanup function
+cleanupOldEntries() =>
     while array.size(bullFVGs) > lookback
-        array.shift(bullFVGs)
-    
+        box.delete(array.shift(bullFVGs))
     while array.size(bearFVGs) > lookback
-        array.shift(bearFVGs)
+        box.delete(array.shift(bearFVGs))
 
-// run fvg detect
-[bullDetected, bearDetected, bullCandle, bearCandle, bullTop, bullBottom, bearTop, bearBottom] = detectFVG()
-
-// add new fvg
-if bullDetected and not isDuplicate(bullCandle, true)
-    newBullFVG = FVG.new(bullCandle, bullTop, bullBottom, true)
-    array.push(bullFVGs, newBullFVG)
-    lastBullCandle := bullCandle
-
-if bearDetected and not isDuplicate(bearCandle, false)
-    newBearFVG = FVG.new(bearCandle, bearTop, bearBottom, false)
-    array.push(bearFVGs, newBearFVG)
-    lastBearCandle := bearCandle
-
-
-cleanupFVGs()
-
-// drawing
-if barstate.islast
-    // draw bullish
-    for i = 0 to array.size(bullFVGs) - 1
-        fvg = array.get(bullFVGs, i)
-        boxColor = color.new(bullColor, transparencyFVG)
-        box.new(fvg.candle_idx, fvg.top, fvg.candle_idx + 2, fvg.bottom, bgcolor=boxColor, border_color=bullColor, border_width=lineWidth)
+// Improved FVG detection logic
+detectFVG() =>
+    minGap = close * (min_gap_percent / 100)
     
-    // draw bearish
-    for i = 0 to array.size(bearFVGs) - 1
-        fvg = array.get(bearFVGs, i)
-        boxColor = color.new(bearColor, transparencyFVG)
-        box.new(fvg.candle_idx, fvg.top, fvg.candle_idx + 2, fvg.bottom, bgcolor=boxColor, border_color=bearColor, border_width=lineWidth)
+    // Proper 3-candle FVG pattern
+    bullCondition = low[0] > high[2] + minGap
+    bearCondition = high[0] < low[2] - minGap
+    
+    [bullCondition, bearCondition]
+
+// Main logic
+[bullFVG, bearFVG] = detectFVG()
+
+// Draw FVG boxes
+if bullFVG
+    fvgTop = high[2]
+    fvgBottom = low[0]
+    b = box.new(bar_index[1], fvgTop, bar_index +1, fvgBottom, bgcolor=bullColor, border_color=color.green, border_width=lineWidth)
+    array.push(bullFVGs, b)
+    // if show_labels
+        // label.new(bar_index[1], fvgTop, "BULL FVG", style=label.style_label_down, color=color.green, textcolor=color.white)
+
+if bearFVG
+    fvgTop = high[0]
+    fvgBottom = low[2]
+    b = box.new(bar_index[1], fvgBottom, bar_index +1, fvgTop, bgcolor=bearColor, border_color=color.red, border_width=lineWidth)
+    array.push(bearFVGs, b)
+    // if show_labels
+        // label.new(bar_index[1], fvgBottom, "BEAR FVG", style=label.style_label_up, color=color.red, textcolor=color.white)
+
+// Cleanup old entries
+cleanupOldEntries()
+
+// Display counter
+if barstate.islast
+    label.new(bar_index, high, "Bullish FVG: " + str.tostring(array.size(bullFVGs)) + 
+             "\nBearish FVG: " + str.tostring(array.size(bearFVGs)), 
+             style=label.style_label_lower_right, color=color.gray, textcolor=color.white)
